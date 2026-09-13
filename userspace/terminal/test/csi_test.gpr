@@ -1,0 +1,14 @@
+--  Host test project for the CSI parser.
+--
+--  Source_Files, not just Source_Dirs: the parser lives beside terminal.adb, and
+--  terminal.adb pulls in the whole aegir runtime (VA constants, Trinket, the input
+--  queue).  Naming the three files keeps this a HOST build - no guest, no RTS -
+--  which is the point of keeping the parser platform-free.
+project Csi_Test is
+   for Source_Dirs use ("..", ".");
+   for Source_Files use ("terminal_csi.ads", "terminal_csi.adb",
+                         "terminal_csi_test.adb");
+   for Object_Dir use "obj";
+   for Exec_Dir use "bin";
+   for Main use ("terminal_csi_test.adb");
+end Csi_Test;
