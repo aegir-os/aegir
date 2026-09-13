@@ -1,12 +1,11 @@
 #!/bin/sh
-#  Host test for the CSI parser.
-#
-#  A HOST test on purpose (docs/terminal-emulation.md): the parser is
-#  platform-free, so its checks need no boot, no screen and no timing.  gprbuild
-#  is not on PATH in this sandbox, so the alr toolchain bins are added here; it
-#  comes before PATH so the host GNAT wins.
+#  Host unit tests for the terminal's platform-free units: the CSI parser and the
+#  screen model.  A HOST test on purpose (docs/terminal-emulation.md) - no boot,
+#  no screen, no timing.  gprbuild is not on PATH in this sandbox, so the alr
+#  toolchain bins are prepended; they come first so the host GNAT wins.
 set -e
 cd "$(dirname "$0")"
 TB=$(ls -d "${HOME}/.local/share/alire/toolchains"/*/bin 2>/dev/null | tr '\n' ':')
-PATH="${TB}${PATH}" gprbuild -p -P csi_test.gpr
-exec ./bin/terminal_csi_test
+PATH="${TB}${PATH}" gprbuild -p -P unit_tests.gpr
+./bin/terminal_csi_test
+./bin/terminal_screen_test

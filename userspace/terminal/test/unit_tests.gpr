@@ -1,0 +1,17 @@
+--  HOST unit tests for the terminal's platform-free units, beside terminal.adb
+--  but deliberately not part of it.
+--
+--  Source_Files, not just Source_Dirs: terminal.adb lives in the same directory
+--  and pulls in the whole aegir runtime (VA constants, Trinket, the input queue).
+--  Naming the files keeps this a host build - no guest, no RTS - which is the
+--  point of keeping these units platform-free (docs/terminal-emulation.md).
+project Unit_Tests is
+   for Source_Dirs use ("..", ".");
+   for Source_Files use ("terminal_csi.ads", "terminal_csi.adb",
+                         "terminal_csi_test.adb",
+                         "terminal_screen.ads", "terminal_screen.adb",
+                         "terminal_screen_test.adb");
+   for Object_Dir use "obj";
+   for Exec_Dir use "bin";
+   for Main use ("terminal_csi_test.adb", "terminal_screen_test.adb");
+end Unit_Tests;
