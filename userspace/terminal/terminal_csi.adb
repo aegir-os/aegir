@@ -64,9 +64,9 @@ package body Terminal_CSI is
                      A := (K => SGR, Bg => Integer (Params (3)), others => <>);
                   end if;
                elsif NP = 1 then
-                  A := (K => SGR, Attr => P1, others => <>);
+                  A := (K => SGR, Attr => Integer (P1), others => <>);
                else
-                  A := (K => SGR, others => <>);
+                  A := (K => SGR, Attr => -1, others => <>);
                end if;
             when 'A' => A := (K => Cursor_Up,    N => N_Of, others => <>);
             when 'B' => A := (K => Cursor_Down,  N => N_Of, others => <>);

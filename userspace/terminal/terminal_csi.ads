@@ -33,7 +33,10 @@ package Terminal_CSI is
    type Action is record
       K      : Kind    := None;
       Ch     : Character := ' ';    --  Print, Control
-      Attr   : Natural := 0;        --  SGR: an attribute (0 reset, 7 reverse)
+      Attr   : Integer := -1;      --  SGR attribute, -1 = none was given.
+      --  An Integer, not a Natural, because 0 is a MEANINGFUL attribute (reset)
+      --  and a caller cannot otherwise tell `ESC[0m` from `ESC[38;5;7m` - which
+      --  carries a colour and no attribute at all.
       Fg, Bg : Integer := -1;       --  SGR: 256-colour index, -1 = unchanged
       N      : Natural := 0;        --  Cursor_*: count; Erase_*: mode
       Row    : Natural := 0;        --  Cursor_Pos, 0-based

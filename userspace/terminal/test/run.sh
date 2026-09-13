@@ -9,3 +9,4 @@ TB=$(ls -d "${HOME}/.local/share/alire/toolchains"/*/bin 2>/dev/null | tr '\n' '
 PATH="${TB}${PATH}" gprbuild -p -P unit_tests.gpr
 ./bin/terminal_csi_test
 ./bin/terminal_screen_test
+./bin/terminal_emul_test
