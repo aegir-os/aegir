@@ -15,6 +15,7 @@ with Trinket.Paint;
 with Trinket.Fonts;
 with Trinket.Widgets;
 with Terminal_Buffer;
+with Terminal_Emul;
 with Terminal_Clip;
 with Terminal_Scroll;
 
@@ -1105,6 +1106,10 @@ begin
       Terminal_Buffer.Init
         (Natural (Text_W / U64 (Cell_W)),
          Natural (Surf_H / U64 (Row_H)));
+      --  The emulation's grid, alongside the scrollback.  Same dimensions, read
+      --  back from the buffer the line above has just set.  The renderer still
+      --  draws the scrollback; drawing the grid is the next unit.
+      Terminal_Emul.Init (Terminal_Buffer.Cols, Terminal_Buffer.Rows);
       Terminal_Scroll.Init (Natural (Surf_W), Natural (Surf_H));
    end;
 
@@ -1187,8 +1192,19 @@ begin
          for I in 1 .. Ada.Streams.Stream_Element_Offset
            (Request.Count)
          loop
-            Terminal_Buffer.Put_Char
-              (Character'Val (Natural (Request.Data (I))));
+            declare
+               C : constant Character :=
+                 Character'Val (Natural (Request.Data (I)));
+            begin
+               --  Program output goes to BOTH: the grid the emulation keeps (what
+               --  is on screen) and the scrollback (the history behind it), which
+               --  is what a terminal has.  Feed does no IPC and allocates nothing,
+               --  so calling it here - while serving the caller - respects the rule
+               --  the loop's own comment states: never call your caller while
+               --  serving them.
+               Terminal_Emul.Feed (C);
+               Terminal_Buffer.Put_Char (C);
+            end;
          end loop;
          Response := (Count => Request.Count, Data => (others => 0));
          if Reply_H /= 0
