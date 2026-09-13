@@ -58,6 +58,29 @@ Two pieces, deliberately separable, and the reason this is a unit of work rather
 The `Term` side is done first (this decision): it emits exactly the table above, and
 `tests/bc/termuse.ob2` in the o2c tree pins the bytes.
 
+## Where the wiring goes (measured, not assumed)
+
+Worth writing down because the obvious answer is wrong.  `Terminal_Buffer.Put_Char` is NOT the output path:
+its four callers in `terminal.adb` are the EDIT and ECHO paths - `Caret_Insert`, the line editor's
+newline, and two backspaces.  Program output does not go through it at all.
+
+The terminal is a STREAM SINK DEVICE (milestone 31).  It creates a sink endpoint, attaches it at the
+console server, and its service loop handles:
+
+* **`Op_Write` - renders text.  THIS is the seam**: each byte of program output becomes
+  `Terminal_Emul.Feed` (the grid) and `Terminal_Buffer.Put_Char` (the scrollback).  Both, because a
+  terminal keeps both - the grid is what is on screen, the scrollback is the history behind it.
+* `Op_Input` - queues focused keys and echoes them into the scrollback.
+* `Op_Read` - drains the input FIFO.
+
+Two constraints that fall out of it, both from rules this project already has:
+
+1. **`Feed` must stay synchronous and cheap.**  It is called while serving a caller, and the service loop's
+   own comment states the rule: never call your caller while serving them (docs/IPC.md).  The emulation
+   does no IPC, allocates nothing and touches no other endpoint - which is exactly why the seam is safe.
+2. **The renderer draws the grid, and the band flush stays where it is** - at the TOP of the loop, after
+   the reply.  Nothing about the emulation changes that ordering; it only changes what is drawn.
+
 ## Consequence today
 
 `Term.GetSize` is a stub returning 80x25, so **no bidirectional protocol is required yet** - the terminal
