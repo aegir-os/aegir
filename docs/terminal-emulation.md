@@ -58,6 +58,29 @@ Two pieces, deliberately separable, and the reason this is a unit of work rather
 The `Term` side is done first (this decision): it emits exactly the table above, and
 `tests/bc/termuse.ob2` in the o2c tree pins the bytes.
 
+## The renderer unit, and why it is not just swapping the source
+
+`Render` is already cell-oriented - it draws `Draw_Glyph` per cell, deliberately ("draw cell by cell so
+the band and the cursor can recolor individual glyphs with one code path"), so reading the grid instead of
+a scrollback line is small.  But it is NOT a one-line swap, and the reason is worth writing down before
+anyone starts.
+
+* **`Render` draws the SCROLLBACK**, and the terminal's prompt and typed line are there.  The prompt is not
+  program output: it arrives through the terminal's own ECHO path - `Input_Put` and `Terminal_Buffer.Put_Char`
+  from the line editor - while `Op_Write` (program output) is the only thing feeding the grid.  Draw the
+  grid alone and the prompt and the typed line disappear.
+* **The block cursor is the EDITOR's**, drawn at `Terminal_Buffer.Current_Line/Current_Col` with a correction
+  from `Edit_Caret`/`Edit_Len`.  The grid has its own cursor.  A live terminal wants one cursor, and the
+  two are not the same thing: the grid's is where the emulation is writing, the editor's is where the user
+  is typing - which are the same place only when the shell owns the line.
+* **It is only verifiable visually.**  "The grid is drawn" is not a log line, so this unit needs a
+  screendump over QMP, and the pointer/scale lesson from M92 applies to any interaction after it.
+
+So the unit is: route the echo through `Terminal_Emul.Feed` as well, decide the cursor question honestly
+(one cursor, or two modes), draw `Cell_At` when the view is live and the scrollback when it is scrolled -
+and check it with a screendump.  It is a unit with a plan, not a patch, which is why it has not been done
+at the tail of a long run.
+
 ## Status
 
 Landed, in order: the parser (`terminal_csi`), the screen model (`terminal_screen`), the driver
