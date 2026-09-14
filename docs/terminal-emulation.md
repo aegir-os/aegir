@@ -58,6 +58,23 @@ Two pieces, deliberately separable, and the reason this is a unit of work rather
 The `Term` side is done first (this decision): it emits exactly the table above, and
 `tests/bc/termuse.ob2` in the o2c tree pins the bytes.
 
+## Status
+
+Landed, in order: the parser (`terminal_csi`), the screen model (`terminal_screen`), the driver
+(`terminal_emul`), the seam measurement, and the wiring at `Op_Write`.  Colour is 256 (`Term.SetColor`
+emits `ESC[38;5;nm` / `ESC[48;5;nm`), which is the side of this that lives in the o2c tree.
+
+**Verified:** 55 host checks across the three platform-free units (one project, `run.sh`, no boot, no GUI,
+no timing) - and, since they now compile into the terminal, a clean guest build of all four units with no
+warnings, plus a boot: `PASS terminal surface ok`, `terminal online`, `terminal spawned shell`,
+`shell online`, and no FAIL, panic or trap in the log.
+
+**Not yet doing anything visible:** the emulation is FED but nothing RENDERS from it.  `Render` still draws
+the scrollback's lines, so the grid is maintained and unread.  That is deliberate - it made the image
+change landable on a boot that could only show a regression - and it is the next unit: draw `Cell_At`
+instead of `Get_Line`, with the band flush staying where it is, at the top of the loop after the reply.
+Attributes reach the cells already, so colour follows from the same change.
+
 ## Where the wiring goes (measured, not assumed)
 
 Worth writing down because the obvious answer is wrong.  `Terminal_Buffer.Put_Char` is NOT the output path:
