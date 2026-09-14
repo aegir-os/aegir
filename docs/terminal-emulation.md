@@ -111,16 +111,23 @@ cell is reverse.  A space means "no index", which is what keeps a default distin
 distinction `Attr = -1` makes in the parser.
 
 Verified to the boot: prompt, banner and block cursor unchanged, so defaults still render as defaults.
-**NOT verified positively - and the attempt found something.**  Nothing on the boot emits SGR, so a
-temporary probe fed the grid the bytes `Term.SetColor` emits (`ESC[38;5;2m GREEN-FG `, a background block,
-and `ESC[7m REVERSE`) just after `PASS terminal surface ok`, before the first `Render`.  The screendump
-showed the shell's banner and prompt and NOT the probe: the grid was fed and nothing drew from it.
+**NOT verified positively - and the attempt found something, then retracted it.**
 
-So the `Live` branch is not being taken, or is not the branch that draws.  `Live` is
-`View_Top >= Max_Top`, both from the SCROLLBACK, and by the time the shell has printed anything the
-scrollback may already be longer than the screen with `View_Top` behind it - in which case `Render` takes
-the scrollback path and every escape-driven effect stays invisible.  That is a measurement, not a theory:
-the next step is to log `View_Top`, `Max_Top` and `Live` at the top of `Render` and read them off a boot.
+Nothing on the boot emits SGR, so a temporary probe fed the grid the bytes `Term.SetColor` emits
+(`ESC[38;5;2m GREEN-FG `, a background block, `ESC[7m REVERSE`) just after `PASS terminal surface ok`,
+before the first `Render`.  The screendump showed the shell's banner and prompt and NOT the probe.
+
+The first reading of that was that the `Live` branch was not being taken.  **It is not - that is wrong**, and
+the probe that said so is two lines long:
+
+    PROBE render: view_top= 0 max_top= 0 count= 1 rows= 58 live=TRUE
+
+`live=TRUE` on the FIRST render, before `shell online`.  So the grid branch runs, and the colour probe did
+render through it.  The grid was drawn and its content was not there - which is a different question, and
+the one worth asking next: print the grid's own cell (`Cell_At (0, 0).Ch`) at the top of `Render`, beside
+`live`.  If the grid is empty at the first render, the writes never reached the SCREEN (the two-argument
+`Feed` is the only path that touches it) or something re-initialised it afterwards - and the shell's banner
+arriving on row 0 rather than below the probe's two lines is evidence for exactly that.
 
 The probe is reverted.  Note what found this: not a log line, not a test, but a picture - the one
 verification this unit could have, and the reason it was worth spending a boot on.  That
