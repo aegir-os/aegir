@@ -13,7 +13,18 @@ with Terminal_Screen;
 package Terminal_Emul is
 
    procedure Init (Cols, Rows : Natural);
+
    procedure Feed (Ch : Character);
+   --  The same, and also reporting what a TEXT consumer should be given: the
+   --  printable character, or a control the transcript keeps (LF, CR, BS, HT),
+   --  or NUL for anything that is part of a sequence rather than text.
+   --
+   --  This is what stops escape sequences being stored as literal text.  Before
+   --  the emulation, EVERY byte of program output went to the scrollback, so
+   --  Term.SetColor printed its own escape as "[38;5;2m"; the scrollback wants
+   --  the same stream with the sequences resolved away, and the emulation is the
+   --  only thing that knows which bytes those are.
+   procedure Feed (Ch : Character; Text_Out : out Character);
 
    --  The screen, re-exported so a renderer needs one with-clause.
    function Cols return Natural renames Terminal_Screen.Cols;

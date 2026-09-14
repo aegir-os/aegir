@@ -10,15 +10,25 @@ package body Terminal_Emul is
    end Init;
 
    procedure Feed (Ch : Character) is
+      Ignored : Character;
+   begin
+      Feed (Ch, Ignored);
+   end Feed;
+
+   procedure Feed (Ch : Character; Text_Out : out Character) is
       A : Action;
    begin
+      Text_Out := ASCII.NUL;
       Terminal_CSI.Feed (Ch, A);
       case A.K is
          when None =>
             null;                     --  an intermediate byte of a sequence
          when Print =>
             Terminal_Screen.Put (A.Ch);
+            --  Only real printouts and controls reach a transcript.
+            Text_Out := A.Ch;
          when Control =>
+            Text_Out := A.Ch;
             case A.Ch is
                when ASCII.LF => Terminal_Screen.New_Line;
                when ASCII.CR => Terminal_Screen.Carriage_Return;

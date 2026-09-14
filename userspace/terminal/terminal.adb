@@ -1195,6 +1195,7 @@ begin
             declare
                C : constant Character :=
                  Character'Val (Natural (Request.Data (I)));
+               T : Character;
             begin
                --  Program output goes to BOTH: the grid the emulation keeps (what
                --  is on screen) and the scrollback (the history behind it), which
@@ -1202,8 +1203,13 @@ begin
                --  so calling it here - while serving the caller - respects the rule
                --  the loop's own comment states: never call your caller while
                --  serving them.
-               Terminal_Emul.Feed (C);
-               Terminal_Buffer.Put_Char (C);
+               Terminal_Emul.Feed (C, T);
+               --  Only what the emulation says is TEXT goes to the scrollback:
+               --  an escape sequence is consumed whole, so the history holds the
+               --  rendered text rather than the bytes that produced it.
+               if T /= ASCII.NUL then
+                  Terminal_Buffer.Put_Char (T);
+               end if;
             end;
          end loop;
          Response := (Count => Request.Count, Data => (others => 0));

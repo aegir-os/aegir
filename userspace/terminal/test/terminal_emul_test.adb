@@ -96,6 +96,31 @@ begin
              "and never swallows the character after it");
    end;
 
+   --  ---- the TRANSCRIPT: what a text consumer gets, and what it does not
+   declare
+      T : Character;
+   begin
+      Init (20, 4);
+      Terminal_Emul.Feed (ESC, T);
+      Check (T = ASCII.NUL, "an escape byte is not text");
+      Terminal_Emul.Feed ('[', T);
+      Check (T = ASCII.NUL, "nor is the rest of the sequence");
+      Terminal_Emul.Feed ('3', T);
+      Terminal_Emul.Feed ('1', T);
+      Terminal_Emul.Feed ('m', T);
+      Check (T = ASCII.NUL, "even when the sequence is a complete SGR");
+      Terminal_Emul.Feed ('a', T);
+      Check (T = 'a', "a printable is text");
+      Terminal_Emul.Feed (ASCII.LF, T);
+      Check (T = ASCII.LF, "and so is a control the history keeps");
+      Terminal_Emul.Feed (ESC, T);
+      Terminal_Emul.Feed ('[', T);
+      Terminal_Emul.Feed ('2', T);
+      Terminal_Emul.Feed ('J', T);
+      Terminal_Emul.Feed ('b', T);
+      Check (T = 'b', "the character after a sequence is text, not swallowed");
+   end;
+
    Ada.Text_IO.Put_Line ("emul: " & Natural'Image (Pass) & " passed,"
                          & Natural'Image (Fail) & " failed");
    if Fail /= 0 then
