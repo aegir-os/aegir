@@ -16,6 +16,7 @@ with Trinket.Fonts;
 with Trinket.Widgets;
 with Terminal_Buffer;
 with Terminal_Emul;
+with Terminal_Screen;
 with Terminal_Clip;
 with Terminal_Scroll;
 
@@ -255,6 +256,7 @@ procedure Terminal is
    begin
       for I in 1 .. Edit_Len loop
          Input_Put (Character'Val (8));
+         Terminal_Emul.Feed (Character'Val (8));
          Terminal_Buffer.Put_Char (Character'Val (8));
       end loop;
       Edit_Len := S'Length;
@@ -262,6 +264,7 @@ procedure Terminal is
       Edit_Caret := Edit_Len;
       for C of S loop
          Input_Put (C);
+         Terminal_Emul.Feed (C);
          Terminal_Buffer.Put_Char (C);
       end loop;
    end Recall_Replace;
@@ -329,6 +332,7 @@ procedure Terminal is
          Edit_Buf (Edit_Len) := Ch;
          Edit_Caret := Edit_Len;
          Input_Put (Ch);
+         Terminal_Emul.Feed (Ch);
          Terminal_Buffer.Put_Char (Ch);
          return;
       end if;
@@ -356,6 +360,7 @@ procedure Terminal is
          Edit_Len := Edit_Len - 1;
          Edit_Caret := Edit_Caret - 1;
          Input_Put (Character'Val (8));
+         Terminal_Emul.Feed (Character'Val (8));
          Terminal_Buffer.Put_Char (Character'Val (8));
          return;
       end if;
@@ -404,6 +409,7 @@ procedure Terminal is
          Edit_Caret := 0;
          Recalling := False;
          Input_Put (Ch);
+         Terminal_Emul.Feed (Ch);
          Terminal_Buffer.Put_Char (Ch);
       elsif Code = 8 or else Code = 127 then
          Caret_Backspace;
@@ -466,6 +472,11 @@ procedure Terminal is
       RH     : constant U64 := U64 (Row_H);
       Line   : String (1 .. Cols);
       Len    : Natural;
+      --  At the bottom of the history, what is on screen is the emulation's grid;
+      --  scrolled back, only the scrollback has the older lines, so it serves
+      --  that.  The cursor's row already maps to a screen row either way.
+      Live   : constant Boolean :=
+        Terminal_Buffer.View_Top >= Terminal_Buffer.Max_Top;
    begin
       Terminal_Scroll.Update_Range;
       Trinket.Paint.Fill_Rect
@@ -475,8 +486,16 @@ procedure Terminal is
             Line_I : constant Natural := Terminal_Buffer.View_Top + R;
             Y      : constant U64 := U64 (R) * RH;
          begin
-            exit when Line_I >= Terminal_Buffer.Line_Count;
-            Terminal_Buffer.Get_Line (Line_I, Line, Len);
+            if Live then
+               --  On screen: the GRID is the picture, so an escape sequence that
+               --  moved the cursor, erased, or set reverse is visible - which is
+               --  the whole point of the emulation.  It has no line length, so a
+               --  full row is drawn and blank cells draw as spaces.
+               Len := Cols;
+            else
+               exit when Line_I >= Terminal_Buffer.Line_Count;
+               Terminal_Buffer.Get_Line (Line_I, Line, Len);
+            end if;
             --  M9x: selection band under the row's glyphs; glyphs
             --  on the band flip to the light Pane color (dark
             --  text on Sel_Blue is unreadable), like Text_Edit.
@@ -497,30 +516,37 @@ procedure Terminal is
                   --  waste and made TTF typing sluggish.
                   for C in 0 .. Len - 1 loop
                      declare
+                        --  The one thing that differs between the two views: where
+                        --  the character comes from.  Everything after this is the
+                        --  same drawing code, deliberately - the band, the cursor
+                        --  and the font fallback should not fork.
+                        Ch : constant Character :=
+                          (if Live then Terminal_Screen.Cell_At (R, C).Ch
+                           else Line (C + 1));
                         X : constant U64 := U64 (C) * CW;
                      begin
                         if Term_H /= Trinket.Fonts.Null_Handle then
                            if SA <= C and then C <= SB then
                               Trinket.Fonts.Draw_Glyph
                                 (Canvas, Term_H,
-                                 Character'Pos (Line (C + 1)),
+                                 Character'Pos (Ch),
                                  X, Y, Trinket.Pane);
                            else
                               Trinket.Fonts.Draw_Glyph
                                 (Canvas, Term_H,
-                                 Character'Pos (Line (C + 1)),
+                                 Character'Pos (Ch),
                                  X, Y, Trinket.Text_Dark);
                            end if;
                         else
                            if SA <= C and then C <= SB then
                               Trinket.Fonts.Draw_Text_Mono
                                 (Canvas, X, Y,
-                                 Line (C + 1 .. C + 1),
+                                 (1 => Ch),
                                  Trinket.Pane);
                            else
                               Trinket.Fonts.Draw_Text_Mono
                                 (Canvas, X, Y,
-                                 Line (C + 1 .. C + 1),
+                                 (1 => Ch),
                                  Trinket.Text_Dark);
                            end if;
                         end if;

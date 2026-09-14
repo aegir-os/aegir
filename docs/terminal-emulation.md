@@ -98,8 +98,15 @@ opened with.  `Feed` now reports what a TEXT consumer should get (a printable, a
 or NUL for anything that is part of a sequence) and `Op_Write` appends only that.  Re-booted: `PASS terminal
 surface ok`, `terminal online`, `shell online`, no FAIL.
 
-**Not yet doing anything else visible:** the emulation is FED but nothing RENDERS from it.  `Render` still draws
-the scrollback's lines, so the grid is maintained and unread.  That is deliberate - it made the image
+**The renderer draws the grid.**  `Render` takes the source of a cell from `Cell_At` when the view is at
+the bottom and from the scrollback when it is scrolled back - one drawing loop, one place where the two
+views differ, so the band, the cursor and the font fallback do not fork.  The cursor needed no change at
+all: it already maps to a screen row (`Cur_Line - Top`).  Verified with a screendump: the Terminal window
+shows the shell's banner, the prompt and the block cursor.
+
+Not yet visible: COLOUR.  A cell carries its index but the renderer still uses the two-colour scheme, so
+SGR 7 and 38;5;n do not show yet - that needs a filled rect per cell for the background plus a palette, and
+it is the next unit.  That is deliberate - it made the image
 change landable on a boot that could only show a regression - and it is the next unit: draw `Cell_At`
 instead of `Get_Line`, with the band flush staying where it is, at the top of the loop after the reply.
 Attributes reach the cells already, so colour follows from the same change.
