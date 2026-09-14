@@ -111,24 +111,24 @@ cell is reverse.  A space means "no index", which is what keeps a default distin
 distinction `Attr = -1` makes in the parser.
 
 Verified to the boot: prompt, banner and block cursor unchanged, so defaults still render as defaults.
-**NOT verified positively - and the attempt found something, then retracted it.**
+**VERIFIED, with a screenshot.**  A temporary probe fed the grid the exact bytes `Term.SetColor` writes,
+placed AFTER `Terminal_Emul.Init` (see below), and the screendump shows `GREEN-FG` in green,
+`ON-BLUE-BG` on a blue background, and `REVERSE` in reverse video - with the shell's banner and prompt
+rendering normally beneath.  So the SGR parser, the 256-colour palette, the per-cell attributes and the
+renderer all work, end to end, visibly.
 
-Nothing on the boot emits SGR, so a temporary probe fed the grid the bytes `Term.SetColor` emits
-(`ESC[38;5;2m GREEN-FG `, a background block, `ESC[7m REVERSE`) just after `PASS terminal surface ok`,
-before the first `Render`.  The screendump showed the shell's banner and prompt and NOT the probe.
+**How this was misdiagnosed twice, because both were instrumentation faults rather than code faults.**
 
-The first reading of that was that the `Live` branch was not being taken.  **It is not - that is wrong**, and
-the probe that said so is two lines long:
+1. The first probe's text never appeared, and it was first read as the `Live` branch not being taken.
+2. A two-line probe retracted that: `PROBE render: view_top= 0 max_top= 0 count= 1 rows= 58 live=TRUE`, on
+   the FIRST render - the grid branch runs.
+3. A grid-content probe then showed the grid holding the shell's text (`grid00='a'` for the banner) but the
+   cursor on ROW 0 where the probe had written two lines - i.e. the grid had been reset after it.
+4. `grep` for Init sites answered it: `Terminal_Emul.Init` is at line 1174, and `PASS terminal surface ok` -
+   which the probe was anchored after - is at 1114.  **The probe fed a grid that Init then cleared.**
 
-    PROBE render: view_top= 0 max_top= 0 count= 1 rows= 58 live=TRUE
-
-`live=TRUE` on the FIRST render, before `shell online`.  So the grid branch runs, and the colour probe did
-render through it.  The grid was drawn and its content was not there - which is a different question, and
-the one worth asking next: print the grid's own cell (`Cell_At (0, 0).Ch`) at the top of `Render`, beside
-`live`.  If the grid is empty at the first render, the writes never reached the SCREEN (the two-argument
-`Feed` is the only path that touches it) or something re-initialised it afterwards - and the shell's banner
-arriving on row 0 rather than below the probe's two lines is evidence for exactly that.
-
+A misplaced probe, not a renderer bug, and it cost a boot to learn - which is the right price.  The lesson
+joins the others: before believing a negative result, check that the instrument ran where it thought it did.
 The probe is reverted.  Note what found this: not a log line, not a test, but a picture - the one
 verification this unit could have, and the reason it was worth spending a boot on.  That
 needs a program that writes escapes running on the guest - the o2c tree's `tests/bc/termuse.ob2` is exactly
