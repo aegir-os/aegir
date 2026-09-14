@@ -111,7 +111,19 @@ cell is reverse.  A space means "no index", which is what keeps a default distin
 distinction `Attr = -1` makes in the parser.
 
 Verified to the boot: prompt, banner and block cursor unchanged, so defaults still render as defaults.
-NOT yet verified positively: nothing on the boot emits SGR, so no screenshot shows a colour yet.  That
+**NOT verified positively - and the attempt found something.**  Nothing on the boot emits SGR, so a
+temporary probe fed the grid the bytes `Term.SetColor` emits (`ESC[38;5;2m GREEN-FG `, a background block,
+and `ESC[7m REVERSE`) just after `PASS terminal surface ok`, before the first `Render`.  The screendump
+showed the shell's banner and prompt and NOT the probe: the grid was fed and nothing drew from it.
+
+So the `Live` branch is not being taken, or is not the branch that draws.  `Live` is
+`View_Top >= Max_Top`, both from the SCROLLBACK, and by the time the shell has printed anything the
+scrollback may already be longer than the screen with `View_Top` behind it - in which case `Render` takes
+the scrollback path and every escape-driven effect stays invisible.  That is a measurement, not a theory:
+the next step is to log `View_Top`, `Max_Top` and `Live` at the top of `Render` and read them off a boot.
+
+The probe is reverted.  Note what found this: not a log line, not a test, but a picture - the one
+verification this unit could have, and the reason it was worth spending a boot on.  That
 needs a program that writes escapes running on the guest - the o2c tree's `tests/bc/termuse.ob2` is exactly
 such a program, and running the bytecode VM on Aegir with it is the follow-up.  That is deliberate - it made the image
 change landable on a boot that could only show a regression - and it is the next unit: draw `Cell_At`
