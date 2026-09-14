@@ -92,7 +92,13 @@ no timing) - and, since they now compile into the terminal, a clean guest build 
 warnings, plus a boot: `PASS terminal surface ok`, `terminal online`, `terminal spawned shell`,
 `shell online`, and no FAIL, panic or trap in the log.
 
-**Not yet doing anything visible:** the emulation is FED but nothing RENDERS from it.  `Render` still draws
+**One visible fix has landed already**: the scrollback no longer receives raw bytes.  Every byte of program
+output used to go to it, so `Term.SetColor` printed its own escape as literal text - the garbage this note
+opened with.  `Feed` now reports what a TEXT consumer should get (a printable, a control the history keeps,
+or NUL for anything that is part of a sequence) and `Op_Write` appends only that.  Re-booted: `PASS terminal
+surface ok`, `terminal online`, `shell online`, no FAIL.
+
+**Not yet doing anything else visible:** the emulation is FED but nothing RENDERS from it.  `Render` still draws
 the scrollback's lines, so the grid is maintained and unread.  That is deliberate - it made the image
 change landable on a boot that could only show a regression - and it is the next unit: draw `Cell_At`
 instead of `Get_Line`, with the band flush staying where it is, at the top of the loop after the reply.
