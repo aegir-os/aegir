@@ -1,4 +1,4 @@
-with Interfaces;
+with Interfaces;         use type Interfaces.Unsigned_32;
 with System;
 with System.Storage_Elements;
 with Ada.Streams;
@@ -16,6 +16,7 @@ with Trinket.Fonts;
 with Trinket.Widgets;
 with Terminal_Buffer;
 with Terminal_Emul;
+with Terminal_Palette;
 with Terminal_Screen;
 with Terminal_Clip;
 with Terminal_Scroll;
@@ -475,6 +476,17 @@ procedure Terminal is
       --  At the bottom of the history, what is on screen is the emulation's grid;
       --  scrolled back, only the scrollback has the older lines, so it serves
       --  that.  The cursor's row already maps to a screen row either way.
+      --  A palette index as the display wants it: AARRGGBB, opaque.
+      function Pax (I : Character) return Trinket.Pixel is
+         R, G, B : Natural;
+      begin
+         Terminal_Palette.Rgb (Character'Pos (I), R, G, B);
+         return Interfaces.Unsigned_32 (16#FF00_0000#)
+           + Interfaces.Shift_Left (Interfaces.Unsigned_32 (R), 16)
+           + Interfaces.Shift_Left (Interfaces.Unsigned_32 (G), 8)
+           + Interfaces.Unsigned_32 (B);
+      end Pax;
+
       Live   : constant Boolean :=
         Terminal_Buffer.View_Top >= Terminal_Buffer.Max_Top;
    begin
@@ -523,32 +535,38 @@ procedure Terminal is
                         Ch : constant Character :=
                           (if Live then Terminal_Screen.Cell_At (R, C).Ch
                            else Line (C + 1));
-                        X : constant U64 := U64 (C) * CW;
+                        X  : constant U64 := U64 (C) * CW;
+                        Cl  : constant Terminal_Screen.Cell :=
+                          (if Live then Terminal_Screen.Cell_At (R, C)
+                           else (Ch => Ch, others => <>));
+                        --  The cell's own colours when it has them, the theme's
+                        --  otherwise.  A space means "no index", which is what
+                        --  keeps a default distinct from colour 0.
+                        On_B : constant Boolean := SA <= C and then C <= SB;
+                        Ink : constant Trinket.Pixel :=
+                          (if Cl.Rev then
+                             (if Cl.Bg /= ' ' then Pax (Cl.Bg)
+                              elsif On_B then Trinket.Pane
+                              else Trinket.Text_Dark)
+                           elsif Cl.Fg /= ' ' then Pax (Cl.Fg)
+                           elsif On_B then Trinket.Pane
+                           else Trinket.Text_Dark);
                      begin
+                        if Cl.Rev then
+                           Trinket.Paint.Fill_Rect
+                             (Canvas, X, Y, X + CW, Y + RH,
+                              (if Cl.Fg /= ' ' then Pax (Cl.Fg)
+                               else Trinket.Pane));
+                        elsif Cl.Bg /= ' ' then
+                           Trinket.Paint.Fill_Rect
+                             (Canvas, X, Y, X + CW, Y + RH, Pax (Cl.Bg));
+                        end if;
                         if Term_H /= Trinket.Fonts.Null_Handle then
-                           if SA <= C and then C <= SB then
-                              Trinket.Fonts.Draw_Glyph
-                                (Canvas, Term_H,
-                                 Character'Pos (Ch),
-                                 X, Y, Trinket.Pane);
-                           else
-                              Trinket.Fonts.Draw_Glyph
-                                (Canvas, Term_H,
-                                 Character'Pos (Ch),
-                                 X, Y, Trinket.Text_Dark);
-                           end if;
+                           Trinket.Fonts.Draw_Glyph
+                             (Canvas, Term_H, Character'Pos (Ch), X, Y, Ink);
                         else
-                           if SA <= C and then C <= SB then
-                              Trinket.Fonts.Draw_Text_Mono
-                                (Canvas, X, Y,
-                                 (1 => Ch),
-                                 Trinket.Pane);
-                           else
-                              Trinket.Fonts.Draw_Text_Mono
-                                (Canvas, X, Y,
-                                 (1 => Ch),
-                                 Trinket.Text_Dark);
-                           end if;
+                           Trinket.Fonts.Draw_Text_Mono
+                             (Canvas, X, Y, (1 => Ch), Ink);
                         end if;
                      end;
                   end loop;

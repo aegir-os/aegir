@@ -10,3 +10,4 @@ PATH="${TB}${PATH}" gprbuild -p -P unit_tests.gpr
 ./bin/terminal_csi_test
 ./bin/terminal_screen_test
 ./bin/terminal_emul_test
+./bin/terminal_palette_test

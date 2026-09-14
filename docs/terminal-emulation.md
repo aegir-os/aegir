@@ -104,9 +104,16 @@ views differ, so the band, the cursor and the font fallback do not fork.  The cu
 all: it already maps to a screen row (`Cur_Line - Top`).  Verified with a screendump: the Terminal window
 shows the shell's banner, the prompt and the block cursor.
 
-Not yet visible: COLOUR.  A cell carries its index but the renderer still uses the two-colour scheme, so
-SGR 7 and 38;5;n do not show yet - that needs a filled rect per cell for the background plus a palette, and
-it is the next unit.  That is deliberate - it made the image
+**COLOUR is in.**  `Terminal_Palette` holds the 256 entries as DATA - pure, host-tested, the xterm values:
+16 basic and bright, a 6x6x6 cube, then greys - and the guest folds three bytes into a Pixel.  The renderer
+now fills a cell's background from its index, draws its glyph in its foreground, and swaps the two when the
+cell is reverse.  A space means "no index", which is what keeps a default distinct from colour 0 - the same
+distinction `Attr = -1` makes in the parser.
+
+Verified to the boot: prompt, banner and block cursor unchanged, so defaults still render as defaults.
+NOT yet verified positively: nothing on the boot emits SGR, so no screenshot shows a colour yet.  That
+needs a program that writes escapes running on the guest - the o2c tree's `tests/bc/termuse.ob2` is exactly
+such a program, and running the bytecode VM on Aegir with it is the follow-up.  That is deliberate - it made the image
 change landable on a boot that could only show a regression - and it is the next unit: draw `Cell_At`
 instead of `Get_Line`, with the band flush staying where it is, at the top of the loop after the reply.
 Attributes reach the cells already, so colour follows from the same change.

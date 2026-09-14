@@ -12,9 +12,11 @@ project Unit_Tests is
                          "terminal_screen.ads", "terminal_screen.adb",
                          "terminal_screen_test.adb",
                          "terminal_emul.ads", "terminal_emul.adb",
-                         "terminal_emul_test.adb");
+                         "terminal_emul_test.adb",
+                         "terminal_palette.ads", "terminal_palette.adb",
+                         "terminal_palette_test.adb");
    for Object_Dir use "obj";
    for Exec_Dir use "bin";
    for Main use ("terminal_csi_test.adb", "terminal_screen_test.adb",
-                "terminal_emul_test.adb");
+                "terminal_emul_test.adb", "terminal_palette_test.adb");
 end Unit_Tests;
