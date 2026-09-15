@@ -397,6 +397,24 @@ $(DISK_IMG): $(DISK_CRATES_SYSTEM) $(DISK_CRATES_C) $(DISK_CRATES_LIBS) $(DISK_C
 	for c in $(DISK_CRATES_LIBS); do \
 	  alr exec -- riscv64-elf-strip -o /tmp/ak-$$c.elf bin/userspace/$$c.elf; \
 	  cp /tmp/ak-$$c.elf "$(INITRD_OUT)/sysroot/Libs/$$(printf '%s' $$c | sed 's/^./\u&/')"; done; \
+	$(if $(O2C_ROOT),mkdir -p $(INITRD_OUT)/sysroot/Development/C,)
+#  The o2c payload, staged from the NEWEST artifacts in O2C_ROOT: the
+#  sub-make rebuilds the compiler and the Aegir VM before either is
+#  copied, so the distribution never ships a stale one.  o2_vm goes to
+#  C/ (a user command), o2c to Development/C, and the test corpus and
+#  samples alongside it.  The build's output is hidden only while it
+#  succeeds - a failure prints the tail and stops the disk build.
+	$(if $(O2C_ROOT),$(MAKE) -C $(O2C_ROOT) build vm-aegir AEGIR_ROOT=$(CURDIR) > $(INITRD_OUT)/o2c-build.log 2>&1 || { tail -20 $(INITRD_OUT)/o2c-build.log; exit 1; };)
+	$(if $(O2C_ROOT),alr exec -- riscv64-elf-strip -o /tmp/ak-o2vm.elf $(O2C_ROOT)/vm/bin-aegir/vm.elf; cp /tmp/ak-o2vm.elf $(INITRD_OUT)/sysroot/C/o2_vm,)
+	$(if $(O2C_ROOT),alr exec -- riscv64-elf-strip -o /tmp/ak-o2c.elf $(O2C_ROOT)/crate/bin/o2c.elf; cp /tmp/ak-o2c.elf $(INITRD_OUT)/sysroot/Development/C/o2c,)
+#  The test corpus ships SOURCES ONLY: the .out goldens and the host
+#  shell harness have no consumer in the guest, and the corpus flat
+#  (234 files) overflows a BeFS directory's single-leaf btree - which
+#  mkbefs.py reported only as a line in the noise while the build
+#  sailed on.  The mkbefs->dd link below is && now, so an overflow
+#  stops the build instead of dd'ing a partial volume.
+	$(if $(O2C_ROOT),mkdir -p $(INITRD_OUT)/sysroot/Development/tests; tar -C $(O2C_ROOT)/tests --exclude='*.out' --exclude='*.sh' --exclude='ada_host' --exclude='hello.gpr' -cf - . | tar -C $(INITRD_OUT)/sysroot/Development/tests -xf -,)
+	$(if $(O2C_ROOT),cp -r $(O2C_ROOT)/samples $(INITRD_OUT)/sysroot/Development/,)
 	for c in $(DISK_CRATES_PREFS); do \
 	  n=$$(basename $$c); \
 	  alr exec -- riscv64-elf-strip -o /tmp/ak-$$n.elf bin/userspace/$$n.elf; \
@@ -420,7 +438,7 @@ $(DISK_IMG): $(DISK_CRATES_SYSTEM) $(DISK_CRATES_C) $(DISK_CRATES_LIBS) $(DISK_C
 	BEFS_START=$$(sgdisk -i 1 $@ | sed -n 's/^First sector: \([0-9]*\).*/\1/p'); \
 	FAT_START=$$(sgdisk -i 2 $@ | sed -n 's/^First sector: \([0-9]*\).*/\1/p'); \
 	FAT_BYTES=$$((FAT_START * 512)); \
-	MK_BEFS_BLK=4096 python3 tools/mkbefs.py --stage $(INITRD_OUT)/sysroot $(INITRD_OUT)/befs.img 256 $(INITRD_OUT)/attrs.tsv; \
+	MK_BEFS_BLK=4096 python3 tools/mkbefs.py --stage $(INITRD_OUT)/sysroot $(INITRD_OUT)/befs.img 256 $(INITRD_OUT)/attrs.tsv && \
 	dd if=$(INITRD_OUT)/befs.img of=$@ bs=512 seek=$$BEFS_START conv=notrunc status=none; \
 	mkfs.vfat -F 32 -S 512 -s 8 -n Data --offset $$FAT_START $@ 261103 >/dev/null; \
 	mcopy -i $@@@$$FAT_BYTES $(INITRD_OUT)/readme.txt ::README.TXT; \
