@@ -400,13 +400,15 @@ $(DISK_IMG): $(DISK_CRATES_SYSTEM) $(DISK_CRATES_C) $(DISK_CRATES_LIBS) $(DISK_C
 	$(if $(O2C_ROOT),mkdir -p $(INITRD_OUT)/sysroot/Development/C,)
 #  The o2c payload, staged from the NEWEST artifacts in O2C_ROOT: the
 #  sub-make rebuilds the compiler and the Aegir VM before either is
-#  copied, so the distribution never ships a stale one.  o2_vm goes to
-#  C/ (a user command), o2c to Development/C, and the test corpus and
-#  samples alongside it.  The build's output is hidden only while it
-#  succeeds - a failure prints the tail and stops the disk build.
+#  copied, so the distribution never ships a stale one.  Both are user
+#  commands, so both go to C/ (the command search path): a bare `o2c`
+#  or `o2_vm` at the CLI must resolve.  o2c keeps its Development/C
+#  copy as well, next to the test corpus and samples that document it.
+#  The build's output is hidden only while it succeeds - a failure
+#  prints the tail and stops the disk build.
 	$(if $(O2C_ROOT),$(MAKE) -C $(O2C_ROOT) build vm-aegir AEGIR_ROOT=$(CURDIR) > $(INITRD_OUT)/o2c-build.log 2>&1 || { tail -20 $(INITRD_OUT)/o2c-build.log; exit 1; };)
 	$(if $(O2C_ROOT),alr exec -- riscv64-elf-strip -o /tmp/ak-o2vm.elf $(O2C_ROOT)/vm/bin-aegir/vm.elf; cp /tmp/ak-o2vm.elf $(INITRD_OUT)/sysroot/C/o2_vm,)
-	$(if $(O2C_ROOT),alr exec -- riscv64-elf-strip -o /tmp/ak-o2c.elf $(O2C_ROOT)/crate/bin/o2c.elf; cp /tmp/ak-o2c.elf $(INITRD_OUT)/sysroot/Development/C/o2c,)
+	$(if $(O2C_ROOT),alr exec -- riscv64-elf-strip -o /tmp/ak-o2c.elf $(O2C_ROOT)/crate/bin/o2c.elf; cp /tmp/ak-o2c.elf $(INITRD_OUT)/sysroot/Development/C/o2c; cp /tmp/ak-o2c.elf $(INITRD_OUT)/sysroot/C/o2c,)
 #  The test corpus ships SOURCES ONLY: the .out goldens and the host
 #  shell harness have no consumer in the guest.  The mkbefs->dd link
 #  below is && (a staging failure stops the build instead of dd'ing
@@ -507,6 +509,12 @@ $(INITRD_IMG): $(INITRD_CRATES) tools/mkinitrd.py FORCE
 #  It carries content on purpose: o2c probes it by READING it, and an empty
 #  file reads as zero bytes.
 	$(if $(O2C_VM_ELF),printf 'o2c hello-bc boot\n' > $(INITRD_ROOT)/Tests/O2cLib/HelloBc.mrk,)
+#  The standalone VM's wait marker: tells a no-argument Tests/Vm that this
+#  boot's manifest o2c WILL publish BD0:VmGreet.obc, so polling for it is
+#  right.  Interactive boots stage no marker, and there a bare `o2_vm`
+#  prints its usage instead of waiting for an image that never comes.
+#  Same O2C_VM_ELF condition as the VM binary itself: no VM, no waiter.
+	$(if $(O2C_VM_ELF),printf 'vm waits for o2c image\n' > $(INITRD_ROOT)/Tests/O2cLib/VmWait.mrk,)
 	alr exec -- riscv64-elf-strip -o $(INITRD_ROOT)/System/Libman $(LIBMAN_ELF)
 	mkdir -p $(INITRD_ROOT)/Tests/Gen
 	for i in $$(seq -w 0 63); do \
