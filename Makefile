@@ -483,6 +483,13 @@ $(INITRD_IMG): $(INITRD_CRATES) tools/mkinitrd.py FORCE
 	$(if $(O2C_ROOT),cp $(O2C_ROOT)/samples/sample.txt $(INITRD_ROOT)/Tests/O2cLib/Sample.txt,)
 	$(if $(O2C_VM_ELF),alr exec -- riscv64-elf-strip -o $(INITRD_ROOT)/Tests/Vm $(O2C_VM_ELF),)
 	$(if $(O2C_ROOT),cp $(O2C_ROOT)/tests/bc/vmgreet.ob2 $(INITRD_ROOT)/Tests/O2cLib/VmGreet.ob2,)
+#  The bytecode boot's marker: tells Tests/O2c to also compile Hello.ob2 to
+#  bytecode and run it in its embedded VM.  Boot 1 (the Ada capture) must
+#  NOT do that pass - the demo's console lines would tear the capture - so
+#  the marker rides on O2C_VM_ELF, which only the bytecode boot stages.
+#  It carries content on purpose: o2c probes it by READING it, and an empty
+#  file reads as zero bytes.
+	$(if $(O2C_VM_ELF),printf 'o2c hello-bc boot\n' > $(INITRD_ROOT)/Tests/O2cLib/HelloBc.mrk,)
 	alr exec -- riscv64-elf-strip -o $(INITRD_ROOT)/System/Libman $(LIBMAN_ELF)
 	mkdir -p $(INITRD_ROOT)/Tests/Gen
 	for i in $$(seq -w 0 63); do \
