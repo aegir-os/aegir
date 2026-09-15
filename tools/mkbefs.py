@@ -156,15 +156,19 @@ class Image:
             self.put(1 + g, bytes(self.bitmap[lo:lo + BLK]))
 
 
-def btree_node(entries):
-    #  Single leaf node (all our trees fit). entries: sorted list of
+def btree_node(entries, left=BTREE_NULL, right=BTREE_NULL,
+               overflow=BTREE_NULL):
+    #  One node (leaf or internal). entries: sorted list of
     #  (key_bytes, value_i64). Node layout (bplustree_node): links,
     #  counts, keys right after the 28-byte header, key lengths at
     #  key_align(header + all_key_length), values after the lengths.
+    #  Leaves take left/right chain links and overflow=-1; internal
+    #  nodes take the rightmost child in overflow (per the bfs
+    #  engine's "child v_i covers [k_{i-1}, k_i)" convention).
     n = len(entries)
     keys = b"".join(k for k, _ in entries)
     node = bytearray(BLK)
-    node[0:28] = (le64(BTREE_NULL) + le64(BTREE_NULL) + le64(BTREE_NULL)
+    node[0:28] = (le64(left) + le64(right) + le64(overflow)
                   + le16(n) + le16(len(keys)))
     node[28:28 + len(keys)] = keys
     pos = key_align(28 + len(keys))
@@ -175,17 +179,60 @@ def btree_node(entries):
         node[pos:pos + 8] = le64(v)
         pos += 8
     if pos > BLK:
-        raise SystemExit("btree node overflow")
+        raise SystemExit("btree node overflow: %d entries need %d "
+                         "bytes of %d" % (n, pos, BLK))
     return bytes(node)
+
+
+def leaf_chunks(entries):
+    #  Split sorted entries into the fewest leaf-fitting chunks
+    #  (same budget as btree_node: key_align(28 + key_bytes) + 2n
+    #  + 8n <= BLK). An empty tree is one empty chunk.
+    chunks, cur, key_bytes, n = [], [], 0, 0
+    for k, v in entries:
+        used = key_align(28 + key_bytes + len(k)) + 10 * (n + 1)
+        if cur and used > BLK:
+            chunks.append(cur)
+            cur, key_bytes, n = [], 0, 0
+            used = key_align(28 + len(k)) + 10
+            if used > BLK:
+                raise SystemExit("btree key too large for a node")
+        cur.append((k, v))
+        key_bytes += len(k)
+        n += 1
+    if cur or not chunks:
+        chunks.append(cur)
+    return chunks
 
 
 def btree_stream(data_type, entries):
     #  bplustree_header at stream offset 0 (one node_size block),
-    #  root node at offset node_size.
-    hdr = (le32(BTREE_MAGIC) + le32(BLK) + le32(1) + le32(data_type)
-           + le64(BLK) + le64(BTREE_NULL) + le64(2 * BLK))
+    #  root node at offset node_size. One chunk stays the classic
+    #  depth-1 tree (root = the leaf); more become depth 2: an
+    #  internal root at node_size pointing at a right-linked leaf
+    #  chain, entry i = (first key of chunk i, stream offset of
+    #  chunk i-1), overflow link = the last leaf - the exact shape
+    #  the bfs engine's split produces (and its reader descends).
+    chunks = leaf_chunks(entries)
+    if len(chunks) == 1:
+        hdr = (le32(BTREE_MAGIC) + le32(BLK) + le32(1)
+               + le32(data_type)
+               + le64(BLK) + le64(BTREE_NULL) + le64(2 * BLK))
+        hdr = hdr + bytes(BLK - len(hdr))
+        return hdr + btree_node(chunks[0])
+    m = len(chunks)
+    offs = [(2 + i) * BLK for i in range(m)]
+    seps = [(chunks[i][0][0], offs[i - 1]) for i in range(1, m)]
+    root = btree_node(seps, overflow=offs[m - 1])
+    leaves = b"".join(
+        btree_node(chunks[i],
+                   left=offs[i - 1] if i else BTREE_NULL,
+                   right=offs[i + 1] if i + 1 < m else BTREE_NULL)
+        for i in range(m))
+    hdr = (le32(BTREE_MAGIC) + le32(BLK) + le32(2) + le32(data_type)
+           + le64(BLK) + le64(BTREE_NULL) + le64((2 + m) * BLK))
     hdr = hdr + bytes(BLK - len(hdr))
-    return hdr + btree_node(entries)
+    return hdr + root + leaves
 
 
 def data_stream(runs, size):
@@ -497,11 +544,24 @@ def build_stage(path, mib, root_host, manifest):
     #  EMPTY: staged files are static, and the engine keeps those
     #  indices in sync only for files it creates/modifies at
     #  runtime (documented deviation — queries match runtime files).
-    #  Each directory's own btree must fit ONE leaf (entries <= the
-    #  ~1024-byte node); assert loudly rather than write an invalid
-    #  tree (the OS tree keeps every dir well under that).
+    #  A directory's btree stream is sized from its real key list:
+    #  one leaf's worth takes 2 blocks, more take 2 + n_leaves
+    #  (btree_stream emits a depth-2 tree then - the bfs engine's
+    #  split shape).
     num_blocks = mib * 1024 * 1024 // BLK
     img = Image(num_blocks)
+
+    def split_runs(start, need):
+        #  Split a contiguous bump allocation at AG boundaries so no
+        #  run crosses a group.
+        runs = []
+        pos = 0
+        while pos < need:
+            seg = min(need - pos,
+                      GROUPSIZE - ((start + pos) % GROUPSIZE))
+            runs.append((start + pos, seg))
+            pos += seg
+        return runs
 
     #  --- pass 1: allocate inode/data/stream blocks + snapshot
     #  host metadata (recursive; returns the record tree) ---
@@ -510,10 +570,15 @@ def build_stage(path, mib, root_host, manifest):
                "block": img.alloc(1), "parent": parent_block,
                "name": os.path.basename(host_path).encode("utf-8")}
         if is_dir:
-            rec["stream"] = img.alloc(2)
-            rec["size"] = 2 * BLK
+            names = sorted(os.listdir(host_path))
+            keys = [b".", b".."] + \
+                [nm.encode("utf-8") for nm in names]
+            rec["nblk"] = len(btree_stream(
+                BTREE_STRING, [(k, 0) for k in keys])) // BLK
+            rec["stream"] = img.alloc(rec["nblk"])
+            rec["size"] = rec["nblk"] * BLK
             rec["children"] = []
-            for nm in sorted(os.listdir(host_path)):
+            for nm in names:
                 hp = os.path.join(host_path, nm)
                 vp = vol_path + "/" + nm if vol_path else nm
                 rec["children"].append(
@@ -527,13 +592,7 @@ def build_stage(path, mib, root_host, manifest):
             runs = []
             if need > 0:
                 start = img.alloc(need)   #  bump-allocated contiguous
-                #  split at AG boundaries so no run crosses a group
-                pos = 0
-                while pos < need:
-                    seg = min(need - pos,
-                              GROUPSIZE - ((start + pos) % GROUPSIZE))
-                    runs.append((start + pos, seg))
-                    pos += seg
+                runs = split_runs(start, need)
             rec["runs"] = runs
         return rec
 
@@ -562,13 +621,15 @@ def build_stage(path, mib, root_host, manifest):
             for ch in rec["children"]:
                 entries.append((ch["name"], ch["block"]))
             stream = btree_stream(BTREE_STRING, entries)
-            if len(stream) > 2 * BLK:
+            if len(stream) != rec["nblk"] * BLK:
                 raise SystemExit(
-                    "mkbefs: dir %s does not fit one leaf" % rec["vol"])
-            img.put(rec["stream"], stream[:BLK])
-            img.put(rec["stream"] + 1, stream[BLK:2 * BLK])
-            runs = [(rec["stream"], 2)]
-            size = 2 * BLK
+                    "mkbefs: dir %s stream resized between passes"
+                    % rec["vol"])
+            for k in range(rec["nblk"]):
+                img.put(rec["stream"] + k,
+                        stream[k * BLK:(k + 1) * BLK])
+            runs = split_runs(rec["stream"], rec["nblk"])
+            size = rec["nblk"] * BLK
             mode = S_IFDIR | S_STR_INDEX | 0o755
         else:
             runs = rec["runs"]
@@ -678,13 +739,51 @@ def build_stage(path, mib, root_host, manifest):
         size = struct.unpack_from("<q", node, 208)[0]
         assert size == rec["size"], "size mismatch %s" % rec["vol"]
         if rec["is_dir"]:
-            srun = struct.unpack_from("<iHH", node, 72)
-            base = (srun[0] << AG_SHIFT) + srun[1]
-            hdr = buf[base * BLK:(base + 1) * BLK]
+            runs = inode_runs(node)
+
+            def stream_block(off):
+                #  stream byte offset -> image block (runs may be
+                #  AG-split, so offset k is not always base + k)
+                covered = 0
+                for (start, ln) in runs:
+                    if off < (covered + ln) * BLK:
+                        return start + (off - covered * BLK) // BLK
+                    covered += ln
+                raise AssertionError(
+                    "stream off %d past runs %s" % (off, rec["vol"]))
+
+            b = stream_block(0)
+            hdr = buf[b * BLK:(b + 1) * BLK]
             assert hdr[0:4] == le32(BTREE_MAGIC), "btree magic %s" % (
                 rec["vol"])
-            leaf = buf[(base + 1) * BLK:(base + 2) * BLK]
-            names, vals = rd_entry(leaf)
+            #  Descend from the root via first-child values to the
+            #  leftmost leaf (depth <= the engine's cap of 3).
+            off = struct.unpack_from("<Q", hdr, 16)[0]
+            for _ in range(8):
+                b = stream_block(off)
+                nd = buf[b * BLK:(b + 1) * BLK]
+                if struct.unpack_from("<Q", nd, 16)[0] == BTREE_NULL:
+                    break
+                count = struct.unpack_from("<H", nd, 24)[0]
+                klen = struct.unpack_from("<H", nd, 26)[0]
+                vpos = key_align(28 + klen) + 2 * count
+                off = struct.unpack_from("<Q", nd, vpos)[0]
+            else:
+                raise AssertionError("btree descent %s" % rec["vol"])
+            #  Walk the leaf chain via right links.
+            names, vals = [], []
+            for _ in range(10000):
+                b = stream_block(off)
+                nd = buf[b * BLK:(b + 1) * BLK]
+                ns, vs = rd_entry(nd)
+                names += ns
+                vals += vs
+                right = struct.unpack_from("<Q", nd, 8)[0]
+                if right == BTREE_NULL:
+                    break
+                off = right
+            else:
+                raise AssertionError("leaf chain %s" % rec["vol"])
             expect = [b".", b".."] + [ch["name"] for ch in
                                       rec["children"]]
             assert names == expect, "dir entries %s: %r != %r" % (

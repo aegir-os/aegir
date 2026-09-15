@@ -408,11 +408,10 @@ $(DISK_IMG): $(DISK_CRATES_SYSTEM) $(DISK_CRATES_C) $(DISK_CRATES_LIBS) $(DISK_C
 	$(if $(O2C_ROOT),alr exec -- riscv64-elf-strip -o /tmp/ak-o2vm.elf $(O2C_ROOT)/vm/bin-aegir/vm.elf; cp /tmp/ak-o2vm.elf $(INITRD_OUT)/sysroot/C/o2_vm,)
 	$(if $(O2C_ROOT),alr exec -- riscv64-elf-strip -o /tmp/ak-o2c.elf $(O2C_ROOT)/crate/bin/o2c.elf; cp /tmp/ak-o2c.elf $(INITRD_OUT)/sysroot/Development/C/o2c,)
 #  The test corpus ships SOURCES ONLY: the .out goldens and the host
-#  shell harness have no consumer in the guest, and the corpus flat
-#  (234 files) overflows a BeFS directory's single-leaf btree - which
-#  mkbefs.py reported only as a line in the noise while the build
-#  sailed on.  The mkbefs->dd link below is && now, so an overflow
-#  stops the build instead of dd'ing a partial volume.
+#  shell harness have no consumer in the guest.  The mkbefs->dd link
+#  below is && (a staging failure stops the build instead of dd'ing
+#  a partial volume - an mkbefs SystemExit once sailed through the
+#  ; chain and shipped a short volume).
 	$(if $(O2C_ROOT),mkdir -p $(INITRD_OUT)/sysroot/Development/tests; tar -C $(O2C_ROOT)/tests --exclude='*.out' --exclude='*.sh' --exclude='ada_host' --exclude='hello.gpr' -cf - . | tar -C $(INITRD_OUT)/sysroot/Development/tests -xf -,)
 	$(if $(O2C_ROOT),cp -r $(O2C_ROOT)/samples $(INITRD_OUT)/sysroot/Development/,)
 	for c in $(DISK_CRATES_PREFS); do \

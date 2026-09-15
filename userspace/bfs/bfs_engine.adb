@@ -26,9 +26,10 @@
 --  runs, sorted/merged — followed by the block contents in run
 --  order. Log offsets are positions within the log area, taken
 --  mod log length. Idx mount a non-empty log is replayed the same
---  way (Journal::ReplayLog). Single-leaf btrees only (no node
---  splits): leaf insert/remove rebuild the node; a leaf without
---  room fails the op with Bad_Args.
+--  way (Journal::ReplayLog). Btrees are multi-level: m82h added
+--  splits (new-left shape, root growth to depth 3) and mkbefs.py
+--  stages big directories as depth-2 trees of the same shape.
+--  Removed entries never free nodes (documented small leak).
 
 with Aegir_User.Console;
 with Aegir_User.Tables;

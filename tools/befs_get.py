@@ -15,10 +15,9 @@
 #        VOLUME_PATH names a directory) under HOST_DIR
 #
 #  VOLUME_PATH is '/' + components ("" = volume root). Directories
-#  may carry a trailing '/'. The parser assumes the single-leaf
-#  btree shape mkbefs.py writes (every dir < one node): the images
-#  this tool reads are freshly built (run recipe, ENV carry-over),
-#  never post-fuzz images. Loud error otherwise.
+#  may carry a trailing '/'. The walker handles any tree shape
+#  (descends to the leftmost leaf, then the right-link chain), so
+#  multi-leaf directories staged by mkbefs.py read back fine.
 
 import os
 import struct
@@ -83,26 +82,51 @@ class Vol:
                 out += self.block(base + k)
         return out
 
-    def dir_entry(self, dir_block, name):
-        #  resolve one name in dir_block: single-leaf btree assumed
+    def tree_entries(self, dir_block):
+        #  All (key, value) entries of a directory btree: descend
+        #  from the root via first-child values to the leftmost
+        #  leaf, then walk the right-link chain (any tree shape).
         node = self.inode(dir_block)
         stream = self.stream_bytes(node)
         if le32(stream, 0) != 0x69F6C2E8:  #  BTREE_MAGIC
-            raise SystemExit("bad btree magic (multi-leaf dir?)")
-        root_off = le64(stream, 16)
-        leaf = stream[root_off:root_off + BLK]
-        count = le16(leaf, 24)
-        klen = le16(leaf, 26)
-        keys = leaf[28:28 + klen]
-        pos = key_align(28 + klen)
-        lens = [le16(leaf, pos + 2 * j) for j in range(count)]
-        pos += 2 * count
-        koff = 0
-        for j in range(count):
-            key = keys[koff:koff + lens[j]]
+            raise SystemExit("bad btree magic")
+        off = le64(stream, 16)
+        for _ in range(8):
+            nd = stream[off:off + BLK]
+            if le64(nd, 16) == -1:  #  overflow link -1 = leaf
+                break
+            count = le16(nd, 24)
+            klen = le16(nd, 26)
+            off = le64(nd, key_align(28 + klen) + 2 * count)
+        else:
+            raise SystemExit("btree descent too deep")
+        out = []
+        for _ in range(100000):
+            nd = stream[off:off + BLK]
+            count = le16(nd, 24)
+            klen = le16(nd, 26)
+            keys = nd[28:28 + klen]
+            pos = key_align(28 + klen)
+            lens = [le16(nd, pos + 2 * j) for j in range(count)]
+            pos += 2 * count
+            koff = 0
+            for j in range(count):
+                key = keys[koff:koff + lens[j]]
+                out.append((key, le64(nd, pos + 8 * j)))
+                koff += lens[j]
+            right = le64(nd, 8)
+            if right == -1:
+                break
+            off = right
+        else:
+            raise SystemExit("btree leaf chain too long")
+        return out
+
+    def dir_entry(self, dir_block, name):
+        #  resolve one name in dir_block
+        for key, val in self.tree_entries(dir_block):
             if key == name:
-                return le64(leaf, pos + 8 * j)
-            koff += lens[j]
+                return val
         return None
 
     def file_bytes(self, file_block):
@@ -128,24 +152,10 @@ class Vol:
         return None, None
 
     def list_dir(self, dir_block):
-        node = self.inode(dir_block)
-        stream = self.stream_bytes(node)
-        root_off = le64(stream, 16)
-        leaf = stream[root_off:root_off + BLK]
-        count = le16(leaf, 24)
-        klen = le16(leaf, 26)
-        keys = leaf[28:28 + klen]
-        pos = key_align(28 + klen)
-        lens = [le16(leaf, pos + 2 * j) for j in range(count)]
-        pos += 2 * count
-        koff = 0
         out = []
-        for j in range(count):
-            key = keys[koff:koff + lens[j]]
-            koff += lens[j]
+        for key, blk in self.tree_entries(dir_block):
             if key in (b".", b".."):
                 continue
-            blk = le64(leaf, pos + 8 * j)
             nd = self.inode(blk)
             out.append((key, 'd' if (le32(nd, 20) & 0o170000)
                         == 0o040000 else 'f'))
